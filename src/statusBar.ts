@@ -1,4 +1,4 @@
-﻿/**
+/**
  * Status bar service
  */
 
@@ -238,20 +238,26 @@ export class StatusBarService {
       result.push(claude);
     }
 
-    // 2. Gemini Pro (Low) - 根据配置决定是否显示
+    // 2. Gemini Pro - 根据配置决定是否显示 (优先 Pro Low，其次任意 Pro)
     if (this.showGeminiPro) {
-      const proLow = models.find(model => this.isProLow(model.label));
-      if (proLow && !result.includes(proLow)) {
-        result.push(proLow);
+      const pro = models.find(model => this.isProLow(model.label))
+        || models.find(model => this.isProModel(model.label));
+      if (pro && !result.includes(pro)) {
+        result.push(pro);
       }
     }
 
-    // 3. Gemini Flash - 根据配置决定是否显示
+    // 3. Gemini Flash - 根据配置决定是否显示 (支持 Gemini 3.8 Flash 等)
     if (this.showGeminiFlash) {
-      const flash = models.find(model => this.isGemini3Flash(model.label));
+      const flash = models.find(model => this.isGeminiFlash(model.label));
       if (flash && !result.includes(flash)) {
         result.push(flash);
       }
+    }
+
+    // 兜底：如果上述规则没有选出任何模型但存在可用模型，展示前两个模型避免状态栏空白
+    if (result.length === 0 && models.length > 0) {
+      result.push(...models.slice(0, 2));
     }
 
     return result;
@@ -262,9 +268,14 @@ export class StatusBarService {
     return lower.includes('pro') && lower.includes('low');
   }
 
-  private isGemini3Flash(label: string): boolean {
+  private isProModel(label: string): boolean {
     const lower = label.toLowerCase();
-    return lower.includes('gemini') && lower.includes('flash');
+    return lower.includes('pro');
+  }
+
+  private isGeminiFlash(label: string): boolean {
+    const lower = label.toLowerCase();
+    return lower.includes('flash') || (lower.includes('gemini') && !lower.includes('pro'));
   }
 
   private isClaudeWithoutThinking(label: string): boolean {
