@@ -103,8 +103,12 @@ export class StatusBarService {
           parts.push(`${indicator} ${emoji} ${shortName} ${this.getProgressBar(0)}`);
         }
       } else if (model.remainingPercentage !== undefined) {
+        let pctText = `${model.remainingPercentage.toFixed(0)}%`;
+        if (model.remainingFraction !== undefined && model.remainingFraction < 1 && model.remainingPercentage >= 99.5) {
+          pctText = '>99%';
+        }
         if (this.displayStyle === 'percentage') {
-          parts.push(`${indicator} ${emoji} ${shortName}: ${model.remainingPercentage.toFixed(0)}%`);
+          parts.push(`${indicator} ${emoji} ${shortName}: ${pctText}`);
         } else if (this.displayStyle === 'dots') {
           parts.push(`${indicator} ${emoji} ${shortName} ${this.getDotsBar(model.remainingPercentage)}`);
         } else {
@@ -203,8 +207,25 @@ export class StatusBarService {
       md.appendMarkdown(`- ${this.localizationService.t('tooltip.remaining')}: **${snapshot.promptCredits.remainingPercentage.toFixed(1)}%**\n\n`);
     }
 
-    // 按模型名称字母顺序排序，使同类模型连续显示
-    const sortedModels = [...snapshot.models].sort((a, b) => a.label.localeCompare(b.label));
+    // 自定义排序：Claude -> Gemini Flash (Low -> Medium -> High) -> GPT
+    const getSortWeight = (label: string): number => {
+      const lower = label.toLowerCase();
+      if (lower.includes('claude') && lower.includes('sonnet')) return 10;
+      if (lower.includes('claude') && lower.includes('opus')) return 20;
+      if (lower.includes('claude')) return 30;
+      if (lower.includes('flash') && lower.includes('low')) return 40;
+      if (lower.includes('flash') && lower.includes('medium')) return 50;
+      if (lower.includes('flash') && lower.includes('high')) return 60;
+      if (lower.includes('flash')) return 70;
+      if (lower.includes('gpt')) return 80;
+      return 100;
+    };
+    const sortedModels = [...snapshot.models].sort((a, b) => {
+      const wa = getSortWeight(a.label);
+      const wb = getSortWeight(b.label);
+      if (wa !== wb) return wa - wb;
+      return a.label.localeCompare(b.label);
+    });
 
     if (sortedModels.length > 0) {
       md.appendMarkdown(`| ${this.localizationService.t('tooltip.model')} | ${this.localizationService.t('tooltip.status')} | ${this.localizationService.t('tooltip.resetTime')} |\n`);
@@ -218,7 +239,11 @@ export class StatusBarService {
         if (model.isExhausted) {
           status = this.localizationService.t('tooltip.depleted');
         } else if (model.remainingPercentage !== undefined) {
-          status = `${model.remainingPercentage.toFixed(1)}%`;
+          if (model.remainingFraction !== undefined && model.remainingFraction < 1 && model.remainingPercentage >= 99.9) {
+            status = `${model.remainingPercentage.toFixed(2)}%`;
+          } else {
+            status = `${model.remainingPercentage.toFixed(1)}%`;
+          }
         }
 
         md.appendMarkdown(`| ${emoji} ${name} | ${status} | ${model.timeUntilResetFormatted} |\n`);
@@ -247,9 +272,10 @@ export class StatusBarService {
       }
     }
 
-    // 3. Gemini Flash - 根据配置决定是否显示 (支持 Gemini 3.8 Flash 等)
+    // 3. Gemini Flash - 根据配置决定是否显示 (支持 Gemini 3.8 Flash 等，优先选 Medium 默认档)
     if (this.showGeminiFlash) {
-      const flash = models.find(model => this.isGeminiFlash(model.label));
+      const flash = models.find(model => this.isGeminiFlash(model.label) && model.label.toLowerCase().includes('medium'))
+        || models.find(model => this.isGeminiFlash(model.label));
       if (flash && !result.includes(flash)) {
         result.push(flash);
       }
